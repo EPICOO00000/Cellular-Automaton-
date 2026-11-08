@@ -1,240 +1,184 @@
-# ◈ Cellarium — a 50-cell grid automaton
+# ◈ Cellarium
 
-A structured-grid cellular automaton where **every cell type is a simple rule**:
+A grid cellular automaton sandbox. **Pick a cell, paint it on the board,
+rotate it, press Run.** Every tick, every cell checks its rule once and
+either does its thing or does nothing.
 
-> **IF** a condition is true around the cell **THEN** it uses its ability.
+No dashboards, no ecosystems to manage — just a board and 50 cells that
+each do one simple action.
 
-At each tick every living cell is visited once (in a shuffled order), its
-condition is evaluated against the world, and — if it holds and its chance roll
-succeeds — its use fires. Born cells are marked "already acted" for that tick,
-so chain reactions never sweep the grid in a single tick.
-
-* **50 cell types** — each with its own emoji icon, condition and use
-* **12 families** — life, plants, growth, motion, energy, time, mutation,
-  chemistry, elements, creatures, society, structures
-* **Zero dependencies** — plain HTML + CSS + Canvas + vanilla JS
-* **Everything is editable from the UI** — paint, erase, stamp, preset, tune
+```
+node serve.js          # http://localhost:8080   (or just open index.html)
+npm test               # engine + UI tests
+```
 
 ---
 
-## Quick start
-
-```bash
-node serve.js          # http://localhost:8080
-# or simply open index.html in a browser
-npm test               # headless engine + UI smoke tests
-```
-
-Node is only used to serve the static files; the app itself runs entirely in the
-browser.
-
----
-
-## The plan (what was built, in order)
-
-1. **Simulation core** — `World` grid, tick loop, spawn/clear/move primitives,
-   O(1) population counters, serialisation.
-2. **Cell catalogue** — 50 data-driven cells: `{ emoji, name, family,
-   condition, effect, cond(), act(), chance }`. Nothing in the engine knows any
-   specific cell, so every type is one self-contained object.
-3. **Ecology balance** — a `CROWD` table gives growers a maximum neighbour
-   count (they suffocate), predators/viruses starve when their food is gone, and
-   a world *carrying capacity* stops runaway fill. This is what makes the grid
-   behave like an ecosystem instead of a flood fill.
-4. **Renderer** — emoji sprites are rasterised once per zoom level into small
-   offscreen canvases, then blitted. A family-coloured bed under every sprite
-   keeps the field readable. Action flash = the cell just used its ability.
-5. **UI** — palette with search + family tabs, live inspector (selected cell,
-   the cell under the cursor with its condition evaluated *right now*), "what
-   just fired" log, population sparkline, per-family bars, world knobs,
-   presets, stamps, save/load.
-6. **Tests** — `test/smoke.js` (engine, all 50 cells isolated, all 12 presets,
-   600-tick soak, serialisation) and `test/dom.js` (renderer + app against a
-   stubbed DOM).
-
----
-
-## The tick, exactly
+## How it works
 
 ```
-tick++
-for each occupied cell, in shuffled order:
-    skip if it already acted this tick
-    if cooldown > 0      → decrement, skip
-    if overcrowded       → die (CROWD table)
-    if global decay roll → die
-    IF  cond(cell, world)          ← the CONDITION
-    AND chance roll succeeds
-    THEN act(cell, world)          ← the USE
-apply spontaneous mutation (optional)
+every tick:
+    for each cell on the board (random order):
+        if it is frozen  → tick down, do nothing
+        if it has a cooldown timer → maybe do nothing
+        run its rule
+    draw the result
 ```
 
-Cells born during a tick get `acted = tick`, so they wait for the next tick.
+A cell that is born during a tick waits for the next one, so nothing
+snowballs across the board in a single frame.
+
+**Every cell is one line of behaviour**, defined in `js/data.js`:
+
+| field | meaning |
+|-------|---------|
+| `emoji` | what is drawn on the tile |
+| `if` | the situation it reacts to |
+| `then` | what it does |
+| `dir` | `true` if the cell has a facing direction (rotate it with `R`) |
+| `period` | optional: only acts every N ticks |
+| `do(cell, sim)` | the action itself |
 
 ---
 
 ## Controls
 
-| Action | How |
-|--------|-----|
-| Run / pause | `Space` or the **Run** button |
-| Single tick | `S` or **⏭ Step** |
-| Paint | left-drag on the grid |
-| Erase | right-drag, `E`, or the 🧽 tool |
-| Pick cell | click it in the palette (or in the **📖 Rules** modal) |
-| Clear | `C` or 🧹 |
-| Inspect | hover any cell — its condition is evaluated live in the inspector |
-| Stamp a shape | the STAMP buttons next to the brush tools |
-| Change world | presets bar, grid size, mutation / decay sliders, wrap edges |
+| | |
+|---|---|
+| **left-click / drag** | paint the selected cell |
+| **right-click** | rotate the cell under the cursor (or erase an empty square) |
+| **R** | rotate the brush (`Shift+R` turns it back) |
+| **Space** | run / pause |
+| **S** | one tick |
+| **1 / 3** | brush size |
+| **E** | toggle erase |
+| **C** | clear the board |
+| **Ctrl+Z** | undo |
+| **?** | the cheat sheet |
+
+Hover any square to read its rule in the tooltip.
 
 ---
 
 ## The 50 cells
 
-Every row is the complete rule: icon, name, **condition** and **use**.
-"Fires" is the default probability that a satisfied cell uses its ability on a given tick.
+### Move — cells that go somewhere
+| | Cell | If | Then |
+|---|------|----|------|
+| 🚶 | Mover | the square ahead is empty | moves one square ahead |
+| 🏃 | Dasher | the next two squares ahead are empty | runs two squares |
+| 🐇 | Hopper | two squares ahead is empty | hops over anything in between |
+| 👐 | Pusher | a moveable cell is ahead and there is room past it | shoves it, then follows |
+| 🏓 | Bouncer | ahead empty → move, blocked → turn around | bounces off walls |
+| 🎈 | Drifter | ahead empty → move, blocked → turn right | drifts, turning at obstacles |
+| 🐍 | Slither | ahead blocked | turns a random way, otherwise creeps |
+| 🎲 | Wanderer | any neighbour is free | wanders into a random one |
+| 🌀 | Spinner | always | turns itself 90° |
 
-### Life — Seeds, growth and decay of simple organisms
+### Make — cells that create
+| | Cell | If | Then |
+|---|------|----|------|
+| 🏭 | Generator | every 3 ticks, square ahead free | prints a Blob |
+| 👯 | Duplicator | every 4 ticks, square ahead free | copies itself |
+| 🔀 | Splitter | every 4 ticks, a front diagonal free | spits a Blob out of each |
+| 🌱 | Grower | every 2 ticks, square ahead free | extends itself — a growing stem |
+| ⛲ | Fountain | a neighbour is free | throws a Spark into it |
+| ✳️ | Spawner | every 5 ticks, a neighbour free | drops a Blob next to itself |
+| 💥 | Blaster | every 3 ticks | fires a Bullet that destroys what it hits |
+| 🪞 | Mirror | next to any cell, with a free neighbour | casts a copy of that cell beside it |
+| 🎨 | Painter | every 2 ticks, a cell is ahead | repaints it into a copy of itself |
 
-| # | Cell | Condition — the IF | Use — the THEN | Fires |
-|---|------|-------------------|----------------|-------|
-| 01 | 🌱 **Life** | 3 living neighbours (dies if it has fewer than 2 or more than 4) | Sprouts Life in a free neighbour — or dies of loneliness / crowding | 60% |
-| 02 | 🦠 **Algae** | At least one free neighbour | Creeps into a random free neighbour | 4% |
-| 03 | 🍄 **Spore** | At least one free neighbour | Plants a Spore there, then withers into Moss | 8% |
-| 04 | ☘️ **Moss** | At least one free neighbour | Spreads a thin layer of Moss | 4% |
+### Break — cells that destroy
+| | Cell | If | Then |
+|---|------|----|------|
+| ⚙️ | Shredder | something breakable is ahead | destroys it |
+| 🔫 | Laser | every 2 ticks, a target within 8 squares ahead | fires a beam that destroys the first thing it hits |
+| 💣 | Bomb | 3 ticks after being placed | explodes a 3×3 hole, then is gone |
+| 🕳️ | Black hole | anything is next to it | swallows all 8 neighbours |
+| 🪚 | Saw | something is to its left or right | cuts both sides |
+| 🔥 | Fire | a living or burnable cell is ahead | burns it, then fades |
+| 🧪 | Acid | every 2 ticks, something breakable ahead | dissolves it and flows into the square |
+| 🗡️ | Grinder | every 2 ticks | destroys both front diagonals |
 
-### Plants — Things rooted in the ground that spread
+### Turn — cells that re-aim other cells
+| | Cell | If | Then |
+|---|------|----|------|
+| 🔄 | Rotator | every 2 ticks | turns every neighbour 90° clockwise |
+| ↩️ | Turner | every 2 ticks, a cell is ahead | turns it 90° clockwise |
+| 🔃 | Flipper | every 2 ticks, a cell is ahead | sends it back the way it came |
+| 🧭 | Aligner | every 2 ticks, a cell is ahead | points it the same way it faces |
+| 🧊 | Freezer | every 3 ticks, a cell is ahead | freezes it for 6 ticks |
+| 🌪️ | Twister | every 2 ticks | turns a random neighbour a random 90° |
 
-| # | Cell | Condition — the IF | Use — the THEN | Fires |
-|---|------|-------------------|----------------|-------|
-| 05 | 🌰 **Seed** | Touches Water — or has waited 12 ticks dormant | Germinates into a Tree | 50% |
-| 06 | 🌳 **Tree** | Has a free diagonal neighbour | Drops a Seed on the ground | 5% |
-| 07 | 🌸 **Flower** | Touches at least 3 living cells | Blooms another Flower beside it | 10% |
-| 08 | 🍃 **Vine** | A free cell in a cardinal direction | Climbs one cell in that direction | 50% |
-| 09 | 🎋 **Bamboo** | The cell above is free | Shoots one cell upwards | 45% |
+### Signal — pulses and logic
+| | Cell | If | Then |
+|---|------|----|------|
+| ⏰ | Clock | every 2 ticks | pulses to every free neighbour |
+| 📡 | Emitter | every 3 ticks | sends a pulse forward (it runs along wires) |
+| ➖ | Wire | a pulse is next to it | pulses travel through it and branch out |
+| 🔁 | Relay | a pulse touches it | repeats the pulse forward |
+| ▶️ | Diode | a pulse arrives from behind | lets it continue only forward |
+| 👁️ | Sensor | every 2 ticks, something is ahead | sends a pulse forward |
+| 💾 | Memory | a pulse arrives | toggles on/off, and pulses while on |
+| 🔢 | Counter | it has counted 3 pulses | sends one pulse out and starts again |
 
-### Growth — Cells whose only job is to get taller / deeper
+### Life — growing, spreading, dying
+| | Cell | If | Then |
+|---|------|----|------|
+| 🌱 | Life | exactly 3 living neighbours | sprouts a new Life — dies if lonely or crowded |
+| 🍄 | Fungus | every 3 ticks, if not crowded | creeps into a free neighbour (dies at age 12) |
+| 👾 | Virus | a living cell is next to it | infects it (starves after 12 ticks) |
+| 🌿 | Plant | every 2 ticks, square ahead free | grows in the direction it faces (dies when crowded) |
+| 🦠 | Colony | 2–3 neighbours and room | buds a new Colony |
+| 💎 | Crystal | exactly 2 Crystal neighbours | grows one more facet |
+| 🐺 | Hunter | a living cell is ahead | eats it, then walks in |
 
-| # | Cell | Condition — the IF | Use — the THEN | Fires |
-|---|------|-------------------|----------------|-------|
-| 10 | 🫚 **Root** | The cell below is free | Digs one cell deeper | 55% |
-| 11 | 🎍 **Stem** | The cell above is free | Grows one cell higher | 35% |
+### Solid — build with these
+| | Cell | If | Then |
+|---|------|----|------|
+| 🧱 | Wall | always | never moves, never breaks (stops lasers) |
+| 🪟 | Glass | always | blocks movement but lets pulses and lasers through |
+| 🟡 | Blob | empty space next to it, 35% of the time | drifts — plain matter to build with |
 
-### Motion — Cells that relocate across the grid
+Plus two **effects** that appear on the board but are not in the palette:
+✨ **Spark** (a pulse, travels 4 ticks) and ⚪ **Bullet** (destroys what it hits).
 
-| # | Cell | Condition — the IF | Use — the THEN | Fires |
-|---|------|-------------------|----------------|-------|
-| 12 | 🚶 **Walker** | The cell east of it is free | Walks one cell east | 100% |
-| 13 | 🏃 **Runner** | The two cells east of it are free | Sprints two cells east | 100% |
-| 14 | 🐇 **Jumper** | A free cell two cells away diagonally | Hops there, leaving its square empty | 100% |
-| 15 | 🛸 **Drone** | Touches a Beacon | Leaps two cells towards the Beacon | 70% |
+---
 
-### Energy — Light, charge and conduction
+## Example boards
 
-| # | Cell | Condition — the IF | Use — the THEN | Fires |
-|---|------|-------------------|----------------|-------|
-| 16 | ☀️ **Sun** | At least one free neighbour | Shines a Light into it | 50% |
-| 17 | ✨ **Light** | Always (it is a photon) | Fades away one tick after it appears | 100% |
-| 18 | 🔋 **Battery** | Touches a Light and has a free neighbour | Stores the charge and releases a Wire | 80% |
-| 19 | 🔌 **Wire** | Touches a Battery | Conducts: turns itself into Light | 90% |
-| 20 | ⚡ **Plasma** | Touches a Wire or a Battery | Overloads, flooding its free neighbours with Light | 60% |
-
-### Time — Clocks, cooldowns and timed releases
-
-| # | Cell | Condition — the IF | Use — the THEN | Fires |
-|---|------|-------------------|----------------|-------|
-| 21 | ⏰ **Clock** | Every second tick (tick is even) | Rings: paints its free neighbours with Blink | 100% |
-| 22 | 💡 **Blink** | Two ticks have passed since it lit up | Switches itself off (goes dark again) | 100% |
-| 23 | 🕯️ **Fuel** | Always (it is flammable) | Ignites into Fire, spreading a Flame above | 100% |
-| 24 | 🥚 **Egg** | 4 ticks have passed since it was laid | Hatches into a random small creature | 100% |
-| 25 | 💦 **Geyser** | Every 5th tick | Erupts, hurling Magma into its free neighbours | 100% |
-| 26 | 🧭 **Sundial** | Touches a Sun | Aligns: becomes a Clock | 50% |
-
-### Mutation — Cells that rewrite other cells
-
-| # | Cell | Condition — the IF | Use — the THEN | Fires |
-|---|------|-------------------|----------------|-------|
-| 27 | 🧬 **Mutator** | Touches another Mutator | Mutates a living neighbour into a random cell | 35% |
-| 28 | 🪞 **Mirror** | Touches a Mirror and another living cell | Copies that cell into a free neighbour | 40% |
-| 29 | 🦎 **Chimera** | Every 6th tick | Cycles: Life → Algae → Spore → Wolf → Moss → Life | 100% |
-| 30 | 🔁 **Echo** | Touches a Light | Repeats it: places a new Light further out | 50% |
-| 31 | 🌈 **Prism** | Touches a Light | Refracts it into four Lights in the cardinal directions | 60% |
-
-### Chemistry — Dissolving, drying and crystallising
-
-| # | Cell | Condition — the IF | Use — the THEN | Fires |
-|---|------|-------------------|----------------|-------|
-| 32 | 🧪 **Acid** | Touches a living cell that is not a Crystal | Dissolves it and takes its form | 50% |
-| 33 | 🧂 **Salt** | Touches Water | Dries the Water into Salt | 50% |
-| 34 | 💎 **Crystal** | Touches exactly 2 Crystals and has a free neighbour | Grows one more facet along the edge | 8% |
-
-### Elements — Fire, water, ice, steam and magma
-
-| # | Cell | Condition — the IF | Use — the THEN | Fires |
-|---|------|-------------------|----------------|-------|
-| 35 | 🔥 **Fire** | Touches something flammable — otherwise it dies out | Spreads into the fuel, then burns out | 90% |
-| 36 | 💧 **Water** | Touches Fire or Magma | Boils into Steam | 90% |
-| 37 | 🧊 **Ice** | Touches Water and has a free neighbour | Freezes the Water and creeps one cell outward | 40% |
-| 38 | ♨️ **Steam** | Always (it rises) | Floats one cell up, then slowly dissolves | 90% |
-| 39 | 🌋 **Magma** | Touches Water or Ice | Vaporises it into Steam | 80% |
-
-### Creatures — Predators, hosts, pollinators
-
-| # | Cell | Condition — the IF | Use — the THEN | Fires |
-|---|------|-------------------|----------------|-------|
-| 40 | 🐺 **Wolf** | Touches Algae, a Flower or a Bee — starves after 25 ticks | Eats it: the prey becomes another Wolf | 50% |
-| 41 | 👾 **Virus** | Touches a host that is not immune — starves after 15 ticks | Infects the host: it becomes a Virus | 50% |
-| 42 | 🐝 **Bee** | Touches a Flower | Pollinates: grows another Flower | 35% |
-| 43 | 🦋 **Butterfly** | Touches a Flower or a Bee | Flutters to a free neighbour | 60% |
-
-### Society — Settlements and industry
-
-| # | Cell | Condition — the IF | Use — the THEN | Fires |
-|---|------|-------------------|----------------|-------|
-| 44 | 🏠 **Colonist** | Touches a Colonist and has room — abandoned after 40 ticks | Founds another Colonist; with 3 neighbours it becomes a Town | 14% |
-| 45 | 🏘️ **Town** | Touches a Colonist and has room — ruins after 80 ticks | Sends out a new Colonist | 12% |
-| 46 | 🏭 **Factory** | Touches a Wire (it is powered) | Assembles a Drone in a free neighbour | 40% |
-| 47 | 🛡️ **Soldier** | Touches a Wolf, Virus or Acid | Destroys the threat and rests for 3 ticks | 90% |
-
-### Structures — Static builds and traversable gates
-
-| # | Cell | Condition — the IF | Use — the THEN | Fires |
-|---|------|-------------------|----------------|-------|
-| 48 | 🧱 **Wall** | Touches a Wall, has a free side, and is within 2 generations | Lays another brick next to it (bricks stop after 2 generations) | 35% |
-| 49 | 🔆 **Beacon** | Has a free neighbour | Sends a Light pulse outward (and attracts Drones) | 70% |
-| 50 | 🚪 **Door** | Touches a Walker or a Runner | Opens: throws the traveller 2 cells forward | 100% |
+Six starting boards in the bottom bar — **Conveyor**, **Factory**, **Laser
+range**, **Garden**, **Pulse circuit** and **Blank** — all built from the same
+cells, just arranged.
 
 ---
 
 ## Files
 
 ```
-index.html      markup + panels
-styles.css      dark UI theme
-js/data.js      the 50 cells, families, crowding table  ← edit rules here
-js/engine.js    World, tick loop, presets, stamps
-js/render.js    canvas renderer + emoji sprite cache
-js/app.js       palette, inspector, painting, controls, catalog
+index.html      the page: bar, palette, board
+styles.css      dark theme
+js/data.js      the 50 cells + their rules   ← edit cells here
+js/engine.js    the tick loop, board, example layouts
+js/render.js    canvas drawing (tiles, arrows, beams)
+js/app.js       palette, painting, rotating, running
 serve.js        zero-dependency static server
-test/           smoke.js (engine) · dom.js (UI harness)
+test/           smoke.js (engine + every cell) · dom.js (UI harness)
 ```
 
 ### Adding a 51st cell
 
-Drop one object into `CELLS` in `js/data.js`:
-
 ```js
 {
-  id: 'lantern', emoji: '🏮', name: 'Lantern', family: 'energy', chance: 0.4,
-  condition: 'Touches a Fire',
-  effect: 'Floats a Light upwards',
-  cond: (c, w) => touches(w, c.x, c.y, ['fire']),
-  act: (c, w) => { if (w.emptyAt(c.x, c.y - 1)) w.place(c.x, c.y - 1, 'light'); },
+  id: 'lantern', emoji: '🏮', name: 'Lantern', family: 'life', period: 4,
+  if: 'Every 4 ticks',
+  then: 'Lights up its neighbours with Sparks',
+  do: (c, sim) => {
+    for (const p of sim.around(c)) if (sim.free(p.x, p.y)) sim.spawn(p.x, p.y, 'spark', sim.dirTo(c, p));
+  },
 }
 ```
 
-The palette, inspector, catalog modal and tests pick it up automatically.
-
----
+It shows up in the palette, the tooltip and the cheat sheet automatically.
 
 MIT licensed.
