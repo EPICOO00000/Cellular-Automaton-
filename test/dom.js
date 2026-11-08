@@ -1,19 +1,18 @@
-/* Headless DOM harness: runs render.js + app.js against a stub document so
-   we catch runtime errors in the UI code paths (no real browser needed). */
+/* Headless UI test: runs render.js + app.js against a stubbed DOM and drives
+   the real handlers (paint, rotate, run, undo, examples) to catch runtime
+   errors that unit tests on the engine cannot see. */
 const fs = require('fs');
+const path = require('path');
 const vm = require('vm');
 
+const noop = () => {};
+
 function fakeCtx() {
-  const noop = () => {};
   return new Proxy(
     {
-      canvas: { width: 600, height: 400 },
       createLinearGradient: () => ({ addColorStop: noop }),
-      measureText: () => ({ width: 10 }),
-      getImageData: () => ({ data: [] }),
-      setTransform: noop,
-      save: noop,
-      restore: noop,
+      createRadialGradient: () => ({ addColorStop: noop }),
+      measureText: () => ({ width: 8 }),
     },
     {
       get(t, k) {
@@ -28,164 +27,181 @@ function fakeCtx() {
   );
 }
 
-const listeners = new Map();
-function makeEl(tag = 'div', sel = '') {
+const store = new Map();
+function makeEl(id = '') {
   const classes = new Set();
   const el = {
-    tagName: tag.toUpperCase(),
-    sel,
-    children: [],
+    id,
     dataset: {},
     style: {},
+    children: [],
+    disabled: false,
+    hidden: false,
+    value: '10',
     _html: '',
     textContent: '',
-    title: '',
-    value: '',
-    hidden: false,
-    width: 600,
-    height: 400,
+    width: 800,
+    height: 600,
     classList: {
       add: (...c) => c.forEach((x) => classes.add(x)),
       remove: (...c) => c.forEach((x) => classes.delete(x)),
-      toggle: (c, on) => (on === undefined ? (classes.has(c) ? classes.delete(c) : classes.add(c)) : on ? classes.add(c) : classes.delete(c)),
+      toggle: (c, on) => {
+        if (on === undefined) classes.has(c) ? classes.delete(c) : classes.add(c);
+        else on ? classes.add(c) : classes.delete(c);
+      },
       contains: (c) => classes.has(c),
+      _set: classes,
     },
-    get innerHTML() {
-      return el._html;
-    },
-    set innerHTML(v) {
-      el._html = String(v);
-    },
+    get innerHTML() { return el._html; },
+    set innerHTML(v) { el._html = String(v); },
     addEventListener: (type, fn) => {
-      const key = sel + ':' + type;
-      if (!listeners.has(key)) listeners.set(key, []);
-      listeners.get(key).push(fn);
+      const key = (id || 'window') + ':' + type;
+      if (!store.has(key)) store.set(key, []);
+      store.get(key).push(fn);
     },
-    removeEventListener: () => {},
-    appendChild: (c) => {
-      el.children.push(c);
-      return c;
-    },
-    removeChild: () => {},
-    setPointerCapture: () => {},
-    getBoundingClientRect: () => ({ width: 720, height: 480, left: 0, top: 0, right: 720, bottom: 480 }),
+    appendChild: (c) => { el.children.push(c); return c; },
+    setPointerCapture: noop,
+    releasePointerCapture: noop,
+    getBoundingClientRect: () => ({ width: 800, height: 600, left: 0, top: 0, right: 800, bottom: 600 }),
     getContext: () => fakeCtx(),
-    scrollIntoView: () => {},
-    focus: () => {},
-    closest: () => null,
     matches: () => false,
+    closest: () => null,
+    scrollIntoView: noop,
     querySelector: () => makeEl(),
     querySelectorAll: () => [],
   };
   return el;
 }
 
-const registry = new Map();
-function bySelector(sel) {
-  if (!registry.has(sel)) registry.set(sel, makeEl('div', sel));
-  return registry.get(sel);
-}
-
+const nodes = new Map();
 const document = {
-  querySelector: (sel) => bySelector(sel),
-  querySelectorAll: () => [],
-  createElement: (tag) => makeEl(tag, 'created:' + tag),
-  addEventListener: () => {},
-  body: makeEl('body'),
-};
-const windowObj = {
-  addEventListener: () => {},
-  devicePixelRatio: 1,
-  localStorage: {
-    _d: {},
-    getItem(k) { return this._d[k] || null; },
-    setItem(k, v) { this._d[k] = v; },
+  querySelector: (sel) => {
+    if (!nodes.has(sel)) nodes.set(sel, makeEl(sel.replace(/^#/, '')));
+    return nodes.get(sel);
   },
-  innerWidth: 1440,
-  innerHeight: 900,
+  querySelectorAll: () => [],
+  createElement: () => makeEl(),
+  addEventListener: (t, fn) => {
+    const key = 'document:' + t;
+    if (!store.has(key)) store.set(key, []);
+    store.get(key).push(fn);
+  },
 };
 
-let rafCount = 0;
-const rafQueue = [];
-function requestAnimationFrame(fn) {
-  rafQueue.push(fn);
-  return rafQueue.length;
-}
+const win = {
+  devicePixelRatio: 1,
+  addEventListener: (t, fn) => {
+    const key = 'window:' + t;
+    if (!store.has(key)) store.set(key, []);
+    store.get(key).push(fn);
+  },
+  innerWidth: 1280,
+  innerHeight: 800,
+};
+win.document = document;
 
+const raf = [];
 const sandbox = {
-  Math,
-  console,
-  JSON,
-  Set,
-  Map,
-  Object,
-  Array,
-  String,
-  Number,
-  Date,
-  parseInt,
-  parseFloat,
-  isNaN,
-  document,
-  window: windowObj,
-  localStorage: windowObj.localStorage,
-  performance: { now: () => Date.now() },
-  requestAnimationFrame,
-  setTimeout: (fn) => { try { fn(); } catch (e) { console.error('setTimeout cb error:', e.message); } return 1; },
-  clearTimeout: () => {},
+  Math, console, JSON, Set, Map, Object, Array, String, Number, parseInt, parseFloat, isNaN, Date,
+  document, window: win, performance: { now: () => Date.now() },
+  requestAnimationFrame: (fn) => raf.push(fn) && raf.length,
+  setTimeout: () => 1,
+  clearTimeout: noop,
   devicePixelRatio: 1,
 };
 sandbox.globalThis = sandbox;
-windowObj.document = document;
-
 const ctx = vm.createContext(sandbox);
 
 const errors = [];
-for (const f of ['js/data.js', 'js/engine.js', 'js/render.js', 'js/app.js']) {
+for (const f of ['data.js', 'engine.js', 'render.js', 'app.js']) {
   try {
-    vm.runInContext(fs.readFileSync(f, 'utf8'), ctx, { filename: f });
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'js', f), 'utf8'), ctx, { filename: f });
   } catch (e) {
     errors.push(`${f}: ${e.stack}`);
   }
 }
 
-// Drive the animation loop ~40 frames so the running simulation executes.
-for (let i = 0; i < 40; i++) {
-  const fn = rafQueue.shift();
+const fire = (key, evt) => {
+  for (const fn of store.get(key) || []) {
+    try {
+      fn(evt);
+    } catch (e) {
+      errors.push(`${key}: ${e.stack.split('\n').slice(0, 3).join(' | ')}`);
+    }
+  }
+};
+
+/* simulate the user: choose cells, paint, rotate, step, run, undo, presets */
+const sim = vm.runInContext('sim', ctx);
+const ui = vm.runInContext('ui', ctx);
+const canvas = document.querySelector('#board');
+
+const ids = vm.runInContext('CELL_IDS', ctx);
+const cellAt = (x, y) => ({ clientX: 100 + x * 16, clientY: 100 + y * 16 });
+
+/* paint every cell type somewhere, rotating as we go */
+fire('#board:pointerdown', { clientX: 100, clientY: 100, button: 0, pointerId: 1 });
+fire('window:pointerup', {});
+ids.forEach((id, i) => {
+  try {
+    vm.runInContext(`selectBrush(${JSON.stringify(id)})`, ctx);
+  } catch (e) {
+    errors.push(`selectBrush(${id}): ${e.message}`);
+  }
+  fire('#board:pointerdown', { clientX: 40 + (i % 40) * 16, clientY: 40 + ((i / 40) | 0) * 16, button: 0, pointerId: 1 });
+  fire('window:pointerup', {});
+});
+fire('#rotate:click', {});
+fire('#board:pointerdown', { clientX: 300, clientY: 300, button: 2, pointerId: 2 }); // right-click rotate
+fire('window:pointerup', {});
+
+/* run a bunch of ticks through the real frame loop */
+fire('#run:click', {});
+for (let i = 0; i < 60; i++) {
+  const fn = raf.shift();
   if (!fn) break;
   try {
-    fn(Date.now() + i * 60);
+    fn(Date.now() + i * 40);
   } catch (e) {
-    errors.push('loop: ' + e.stack);
+    errors.push('frame: ' + e.stack.split('\n').slice(0, 3).join(' | '));
     break;
   }
 }
 
-const worldAfterFrames = vm.runInContext('world', ctx);
-console.log('BEFORE handlers -> tick', worldAfterFrames.tick, 'pop', worldAfterFrames.population(), 'uses', worldAfterFrames.lastUses, 'log', worldAfterFrames.log.length);
+fire('#step:click', {});
+fire('#undo:click', {});
+fire('#clear:click', {});
+fire('#wrap:click', { currentTarget: makeEl('wrap') });
+fire('#help:click', {});
+fire('#modal-close:click', {});
 
-// Fire the click handlers we registered for key controls.
-for (const [key, fns] of listeners) {
-  if (!/btn-play|btn-step|btn-clear|presets|stamp|family-tabs|palette-list|btn-catalog/.test(key)) continue;
-  for (const fn of fns) {
-    for (const evt of [
-      { target: { closest: () => null, dataset: {}, matches: () => false }, currentTarget: bySelector(key.split(':')[0]), preventDefault() {} },
-      { target: { closest: () => ({ dataset: { family: 'life' } }), dataset: {}, matches: () => false }, currentTarget: bySelector(key.split(':')[0]), preventDefault() {} },
-      { target: { closest: () => ({ dataset: { goto: 'wolf' } }), id: 'catalog-modal', dataset: {}, matches: () => false }, currentTarget: bySelector(key.split(':')[0]), preventDefault() {} },
-    ]) {
-      try {
-        fn(evt);
-      } catch (e) {
-        errors.push(`handler ${key}: ${e.stack.split('\n').slice(0, 3).join(' | ')}`);
-      }
-    }
+/* examples */
+const presetIds = vm.runInContext('PRESETS.map(p => p.id)', ctx);
+for (const id of presetIds) {
+  try {
+    vm.runInContext(`loadPreset(${JSON.stringify(id)})`, ctx);
+    for (let t = 0; t < 30; t++) vm.runInContext('sim.step()', ctx);
+  } catch (e) {
+    errors.push(`preset ${id}: ${e.message}`);
   }
 }
 
-const world = vm.runInContext('world', ctx);
-console.log('UI errors:', errors.length ? '\n' + errors.join('\n\n') : 'none');
-if (world) {
-  console.log('world after loop: tick', world.tick, 'pop', world.population(), 'uses', world.lastUses);
-  console.log('log entries', world.log.length, 'history', vm.runInContext('state.history.length', ctx));
+/* keyboard */
+for (const key of [' ', 's', 'r', 'c', 'e', '?']) {
+  fire('window:keydown', {
+    key,
+    code: key === ' ' ? 'Space' : undefined,
+    shiftKey: false,
+    target: { matches: () => false },
+    preventDefault: noop,
+  });
 }
+
+/* pointer movement over the board (tooltip + hover) */
+fire('#board:pointermove', { clientX: 200, clientY: 200 });
+fire('#board:pointerleave', {});
+
+console.log('board size:', sim.w + '×' + sim.h);
+console.log('brush:', ui.brush, 'dir:', ui.dir);
+console.log('UI errors:', errors.length ? '\n' + errors.join('\n') : 'none');
 process.exitCode = errors.length ? 1 : 0;
