@@ -89,6 +89,8 @@ function renderPalette() {
 function selectCell(id) {
   state.selected = id;
   state.tool = 'paint';
+  state.stamp = null;
+  $$('.stamp').forEach((b) => b.classList.remove('is-armed'));
   $$('.tool[data-tool]').forEach((b) => b.classList.toggle('is-active', b.dataset.tool === 'paint'));
   $$('.cell-entry').forEach((r) => r.classList.toggle('is-active', r.dataset.id === id));
   renderInspector();
@@ -197,6 +199,10 @@ function updateStats() {
   $('#stat-pop').textContent = world.population();
   $('#stat-uses').textContent = world.lastUses;
   $('#foot-tick').textContent = world.tick;
+
+  // stamp the cells that fired on the most recent tick
+  const fired = new Set(world.log.length ? world.log[0].events.map(([id]) => id) : []);
+  for (const row of $$('.cell-entry')) row.classList.toggle('just-fired', fired.has(row.dataset.id));
 
   // per-type counters in the palette
   for (const el of $$('[data-pop]')) {
@@ -375,13 +381,14 @@ function stampAt(p, stamp) {
   });
   state.stamp = null;
   $$('.stamp').forEach((b) => b.classList.remove('is-armed'));
+  renderer.markDirty();
   renderer.draw();
   updateStats();
 }
 
 function paintAt(p) {
   if (!p) return;
-  if (state.stamp) return stampAt(p, state.stamp);
+  if (state.stamp && state.tool === 'paint') return stampAt(p, state.stamp);
   const r = state.brush;
   const d = (r - 1) / 2;
   for (let dy = -d; dy <= d; dy++) {
@@ -403,6 +410,7 @@ function paintAt(p) {
       }
     }
   }
+  renderer.markDirty();
   renderer.draw();
   updateStats();
 }
@@ -515,15 +523,16 @@ function setRunning(on) {
 $('#btn-play').addEventListener('click', () => setRunning(!state.running));
 $('#btn-step').addEventListener('click', () => {
   world.step();
+  renderer.markDirty();
   renderer.draw();
   updateStats();
   if (state.hoverCell) renderCursorInspect();
 });
 $('#btn-clear').addEventListener('click', () => {
   world.clearAll();
-  world.tick = 0;
   world.reactions = 0;
   lastReactions = 0;
+  renderer.markDirty();
   renderer.draw();
   updateStats();
   flashHint('Grid cleared — pick a cell and paint.');
@@ -544,6 +553,7 @@ $$('.tool[data-tool]').forEach((b) =>
 $$('.tool[data-size]').forEach((b) =>
   b.addEventListener('click', () => {
     state.brush = +b.dataset.size;
+    renderer.brushSize = state.brush;
     $$('.tool[data-size]').forEach((x) => x.classList.toggle('is-active', x === b));
     $('#foot-size').textContent = `${state.brush}×${state.brush}`;
   })
@@ -552,11 +562,13 @@ $$('.tool[data-size]').forEach((b) =>
 $('#tgl-grid').addEventListener('click', (e) => {
   renderer.showGrid = !renderer.showGrid;
   e.currentTarget.classList.toggle('is-active', renderer.showGrid);
+  renderer.markDirty();
   renderer.draw();
 });
 $('#tgl-glow').addEventListener('click', (e) => {
   renderer.showGlow = !renderer.showGlow;
   e.currentTarget.classList.toggle('is-active', renderer.showGlow);
+  renderer.markDirty();
   renderer.draw();
 });
 $('#tgl-wrap').addEventListener('click', (e) => {
@@ -605,6 +617,7 @@ $('#btn-load').addEventListener('click', () => {
   if (!raw) return flashHint('Nothing saved yet.');
   try {
     world.load(JSON.parse(raw));
+    renderer.markDirty();
     renderer.resize();
     renderer.draw();
     updateStats();
@@ -669,13 +682,14 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'Space') { e.preventDefault(); setRunning(!state.running); }
   if (e.key === 's' || e.key === 'S') {
     world.step();
+    renderer.markDirty();
     renderer.draw();
     updateStats();
   }
   if (e.key === 'c' || e.key === 'C') {
     world.clearAll();
-    world.tick = 0;
     lastReactions = 0;
+    renderer.markDirty();
     renderer.draw();
     updateStats();
   }

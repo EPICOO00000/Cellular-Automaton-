@@ -80,3 +80,31 @@ const blob = w.serialize();
 const w2 = new World(10, 10);
 w2.load(blob);
 console.log('serialize round-trip pop match:', w.population() === w2.population(), blob.w + 'x' + blob.h);
+
+
+/* ---- integrity: counters must always match the real grid, and reactions
+   must really change the world (this catches the "snapshot vs cell" class of
+   bug where a rule updates statistics but not the board). ---- */
+let counterFails = 0;
+for (let trial = 0; trial < 25; trial++) {
+  const w = new World(30, 22);
+  w.mutationRate = Math.random() * 0.4;
+  for (let k = 0; k < 200; k++) {
+    const x = (Math.random() * 30) | 0;
+    const y = (Math.random() * 22) | 0;
+    if (w.emptyAt(x, y)) w.place(x, y, CELL_IDS[(Math.random() * CELL_IDS.length) | 0]);
+  }
+  for (let t = 0; t < 250; t++) {
+    w.step();
+    let real = 0;
+    for (const c of w.cells) if (c) real++;
+    const tracked = Object.values(w.byType).filter((v) => v > 0).reduce((a, b) => a + b, 0);
+    if (real !== tracked || w.population() !== real) {
+      counterFails++;
+      console.log(`counter mismatch trial ${trial} tick ${w.tick}: real ${real} tracked ${tracked} pop ${w.population()}`);
+      break;
+    }
+  }
+}
+console.log('\ncounter integrity:', counterFails ? `FAIL (${counterFails})` : 'exact over 25 random worlds × 250 ticks');
+process.exitCode = counterFails ? 1 : process.exitCode;

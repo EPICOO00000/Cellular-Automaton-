@@ -30,6 +30,8 @@ class World {
     this._pop = 0;            // cached live cell count (kept O(1))
     this.lastUses = 0;        // uses performed during the previous tick
     this.log = [];            // [{tick, events: [[id, count], …]}] newest first
+    this.errors = 0;          // rule exceptions swallowed during the run
+    this.lastError = null;
     this.resetStats();
   }
 
@@ -92,33 +94,40 @@ class World {
     return fresh;
   }
   setCell(cell, id) {
+    // id === null means "this cell turns into empty ground"
+    if (id == null) return this.clear(cell);
     const prev = cell.v;
     cell.v = id;
     cell.born = this.tick;
     cell.acted = this.tick;
     cell.cool = 0;
     cell.flash = 1;
-    // id === null means "this cell turns into empty ground"
-    if (id == null) return this.clear(cell);
     if (prev !== id) {
       if (prev) this.byType[prev] = Math.max(0, (this.byType[prev] || 0) - 1);
       this.byType[id] = (this.byType[id] || 0) + 1;
       if (this.tick > 0) this.births++;
     }
   }
-  replace(cell, id) {
+  /* `target` may be a live cell object or a neighbour snapshot ({x, y, …})
+     produced by around(). Always resolve through the grid so the real cell
+     is the one that changes. */
+  resolve(target) {
+    if (!target) return null;
+    return this.get(target.x, target.y);
+  }
+  replace(target, id) {
+    const cell = this.resolve(target);
     if (!cell) return;
     this.setCell(cell, id);
     this.reactions++;
   }
-  clear(cell) {
+  clear(target) {
+    const cell = this.resolve(target);
     if (!cell) return;
     const i = this.idx(cell.x, cell.y);
-    if (this.cells[i] === cell) {
-      this.byType[cell.v] = Math.max(0, (this.byType[cell.v] || 0) - 1);
-      this.cells[i] = null;
-      this._pop = Math.max(0, this._pop - 1);
-    }
+    this.byType[cell.v] = Math.max(0, (this.byType[cell.v] || 0) - 1);
+    this.cells[i] = null;
+    this._pop = Math.max(0, this._pop - 1);
   }
   move(cell, p, id) {
     if (!p || !cell) return false;
@@ -247,6 +256,8 @@ class World {
         alive = def.cond(cell, this);
       } catch (e) {
         alive = false;
+        this.errors++;
+        this.lastError = `${cell.v} cond: ${e.message}`;
       }
       if (!alive) continue;
 
@@ -260,6 +271,8 @@ class World {
         events.set(cell.v, (events.get(cell.v) || 0) + 1);
       } catch (e) {
         /* a cell's use must never break the whole simulation */
+        this.errors++;
+        this.lastError = `${cell.v}: ${e.message}`;
       }
     }
 
@@ -363,32 +376,50 @@ function stamp(w, x, y, pattern, legend) {
 const PRESETS = [
   {
     id: 'soup', name: 'Primordial Soup', emoji: '🥣',
-    desc: 'Every one of the 50 cells, dropped at random. The lab bench.',
+    desc: 'Every family at once, dropped at random. The lab bench.',
     build(w) {
+      // weight the soup away from fire/magma so the mix stays interesting
+      const pool = CELL_IDS.filter((id) => !['magma', 'fire', 'plasma', 'lava'].includes(id));
       for (let y = 0; y < w.height; y++) {
         for (let x = 0; x < w.width; x++) {
-          if (Math.random() < 0.22) w.place(x, y, CELL_IDS[(Math.random() * CELL_IDS.length) | 0]);
+          if (Math.random() < 0.22) w.place(x, y, pool[(Math.random() * pool.length) | 0]);
         }
+      }
+      // a few pockets of catastrophe for drama
+      for (let k = 0; k < 3; k++) {
+        const x = 6 + ((Math.random() * (w.width - 12)) | 0);
+        const y = 6 + ((Math.random() * (w.height - 12)) | 0);
+        w.place(x, y, 'geyser');
+        w.place(x + 1, y, 'fuel');
+        w.place(x, y + 1, 'water');
       }
     },
   },
   {
     id: 'life', name: 'Conway Garden', emoji: '🌱',
-    desc: 'Life cells seeded in clumps, surrounded by Moss and Algae.',
+    desc: 'Life in Conway shapes, moss and algae creeping between them.',
     build(w) {
       const cx = (w.width / 2) | 0;
       const cy = (w.height / 2) | 0;
-      for (let k = 0; k < 22; k++) {
-        const x = cx + ((Math.random() - 0.5) * w.width * 0.7) | 0;
-        const y = cy + ((Math.random() - 0.5) * w.height * 0.7) | 0;
-        stamp(w, x, y, ['.#.', '###', '.#.'], { '#': 'life' });
+      const shapes = [
+        ['.#.', '..#', '###'],      // glider
+        ['##', '##'],               // block
+        ['###'],                    // blinker
+        ['.#.', '###', '.#.'],      // plus
+        ['##', '.#', '.#'],         // fish-ish
+      ];
+      for (let k = 0; k < 26; k++) {
+        const x = 4 + ((Math.random() * (w.width - 10)) | 0);
+        const y = 4 + ((Math.random() * (w.height - 10)) | 0);
+        stamp(w, x, y, pick(shapes), { '#': 'life' });
       }
-      for (let k = 0; k < 30; k++) {
-        const x = (Math.random() * w.width) | 0;
-        const y = (Math.random() * w.height) | 0;
-        w.place(x, y, 'moss');
-        if (Math.random() < 0.4) w.place(x + 1, y, 'algae');
+      for (let k = 0; k < 40; k++) {
+        const x = 2 + ((Math.random() * (w.width - 4)) | 0);
+        const y = 2 + ((Math.random() * (w.height - 4)) | 0);
+        w.place(x, y, Math.random() < 0.65 ? 'moss' : 'algae');
       }
+      // fixed demo shapes in the middle so the rule is always visible
+      stamp(w, cx - 1, cy - 1, ['.#.', '..#', '###'], { '#': 'life' });
     },
   },
   {
@@ -418,24 +449,30 @@ const PRESETS = [
   },
   {
     id: 'volcano', name: 'Volcano', emoji: '🌋',
-    desc: 'Magma core, geysers, water lakes and steam rising.',
+    desc: 'A magma crater ringed by lakes; geysers keep feeding it.',
     build(w) {
       const cx = (w.width / 2) | 0;
       const cy = (w.height / 2) | 0;
-      for (let y = -5; y <= 5; y++) {
-        for (let x = -7; x <= 7; x++) {
-          if (Math.abs(x) + Math.abs(y) < 6 && Math.random() < 0.85) {
-            w.place(cx + x, cy + y, 'magma');
-          }
+      // crater
+      for (let y = -4; y <= 4; y++) {
+        for (let x = -6; x <= 6; x++) {
+          if (Math.abs(x) + Math.abs(y) * 1.4 < 6) w.place(cx + x, cy + y, 'magma');
         }
       }
-      for (let x = 2; x < w.width - 2; x += 3) {
-        w.place(x, w.height - 2, 'water');
-        w.place(x, w.height - 3, 'water');
+      // lakes left and right, close enough to boil
+      for (let i = 0; i < 7; i++) {
+        for (let j = 0; j < 5; j++) {
+          if (Math.random() < 0.9) w.place(cx - 12 - j + (i % 2), cy - 3 + i, 'water');
+          if (Math.random() < 0.9) w.place(cx + 12 + j - (i % 2), cy - 3 + i, 'water');
+        }
       }
-      w.place(cx, cy - 8, 'geyser');
-      w.place(cx - 14, cy + 6, 'geyser');
-      w.place(cx + 14, cy + 6, 'geyser');
+      // nested geysers
+      w.place(cx, cy, 'geyser');
+      w.place(cx - 4, cy + 3, 'geyser');
+      w.place(cx + 4, cy - 3, 'geyser');
+      // a couple of ice islands to melt
+      w.place(cx - 18, cy, 'ice');
+      w.place(cx + 18, cy, 'ice');
     },
   },
   {
@@ -444,7 +481,9 @@ const PRESETS = [
     build(w) {
       const spots = [[4, 4], [w.width - 5, 4], [4, w.height - 5], [w.width - 5, w.height - 5]];
       spots.forEach(([x, y]) => {
-        stamp(w, x - 1, y - 1, ['.'.repeat(3), '.@.', '...'], { '@': 'crystal' });
+        w.place(x, y, 'crystal');
+        w.place(x + 1, y, 'crystal');
+        w.place(x, y + 1, 'crystal');
         for (let k = 0; k < 6; k++) {
           w.place(x + ((Math.random() * 12) | 0) - 6, y + ((Math.random() * 12) | 0) - 6, Math.random() < 0.5 ? 'salt' : 'ice');
         }
