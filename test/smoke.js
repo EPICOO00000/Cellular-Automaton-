@@ -85,8 +85,8 @@ for (const def of CELLS) {
 {
   const sim = new Sim(20, 8);
   sim.place(2, 4, 'laser', 1);
-  sim.place(10, 4, 'blob');    // in the line of fire
-  sim.place(11, 7, 'blob');    // off to the side
+  sim.place(10, 4, 'blob');     // sits in the line of fire
+  sim.place(11, 7, 'spinner');  // off to the side, and it never moves away
   for (let t = 0; t < 4; t++) sim.step();
   check(!sim.at(10, 4), 'laser destroyed the target');
   check(!!sim.at(11, 7), 'laser did not touch anything off its line');
