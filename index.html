@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Cellarium — a 50-cell automaton</title>
+<link rel="stylesheet" href="styles.css" />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌱</text></svg>" />
+</head>
+<body>
+
+<header class="appbar">
+  <div class="brand">
+    <span class="brand-mark">◈</span>
+    <div class="brand-text">
+      <h1>Cellular Automaton</h1>
+      <p>50 cells · condition → use</p>
+    </div>
+  </div>
+
+  <div class="readouts">
+    <div class="readout"><span>TICK</span><b id="stat-tick">0</b></div>
+    <div class="readout"><span>ALIVE</span><b id="stat-pop">0</b></div>
+    <div class="readout"><span>USES / TICK</span><b id="stat-uses">0</b></div>
+  </div>
+
+  <div class="appbar-actions">
+    <button id="btn-play" class="btn btn-primary" title="Space">
+      <span class="ico" id="play-ico">▶</span><span id="play-label">Run</span>
+    </button>
+    <button id="btn-step" class="btn" title="S">⏭ Step</button>
+    <button id="btn-clear" class="btn" title="Clear the grid">🧹</button>
+    <button id="btn-catalog" class="btn" title="All 50 rules">📖 Rules</button>
+    <label class="speed">
+      <span>SPEED</span>
+      <input id="speed" type="range" min="1" max="30" value="8" />
+      <b id="speed-label">8</b>
+    </label>
+  </div>
+</header>
+
+<div class="presets-bar">
+  <span class="presets-label">PRESETS</span>
+  <div class="presets" id="presets"></div>
+  <button class="btn btn-ghost" id="btn-random" title="Random 50-cell soup">🎲 Surprise me</button>
+</div>
+
+<main class="layout">
+
+  <!-- ======================== PALETTE ======================== -->
+  <aside class="panel palette">
+    <div class="panel-head">
+      <h2>Cell palette</h2>
+      <span class="badge" id="palette-count">50</span>
+    </div>
+
+    <div class="palette-tools">
+      <input type="search" id="search" placeholder="Search cells…" autocomplete="off" />
+      <div class="tabs" id="family-tabs"></div>
+    </div>
+
+    <div class="palette-list" id="palette-list"></div>
+  </aside>
+
+  <!-- ========================= STAGE ========================= -->
+  <section class="stage">
+    <div class="stage-top">
+      <div class="brush-tools">
+        <button class="tool is-active" data-tool="paint" title="Paint (B)">✏️</button>
+        <button class="tool" data-tool="erase" title="Erase (E)">🧽</button>
+        <div class="tool-sep"></div>
+        <button class="tool" data-size="1" title="Brush 1">1</button>
+        <button class="tool" data-size="3" title="Brush 2">2</button>
+        <button class="tool" data-size="7" title="Brush 3">3</button>
+        <div class="tool-sep"></div>
+        <button class="tool is-active" id="tgl-grid" title="Grid lines">▦</button>
+        <button class="tool is-active" id="tgl-glow" title="Action glow">✦</button>
+        <button class="tool is-active" id="tgl-wrap" title="Wrap edges">🔁</button>
+      </div>
+      <div class="stamp-tools" id="stamp-tools" title="Stamps"></div>
+      <div class="stage-right">
+        <select id="size-select" title="Grid size">
+          <option value="40x26">Small 40×26</option>
+          <option value="60x40" selected>Medium 60×40</option>
+          <option value="84x56">Large 84×56</option>
+        </select>
+        <button class="btn btn-ghost" id="btn-save" title="Save to this browser">💾 Save</button>
+        <button class="btn btn-ghost" id="btn-load" title="Restore saved grid">📂 Load</button>
+      </div>
+    </div>
+
+    <div class="canvas-wrap">
+      <canvas id="grid"></canvas>
+      <div class="canvas-hint" id="canvas-hint">Click to paint · drag to draw · right-click to erase</div>
+      <div class="cursor-tip" id="cursor-tip"></div>
+    </div>
+
+    <div class="stage-foot">
+      <div class="foot-item"><span class="dot"></span> <b id="foot-sel">🌱 Life</b> selected</div>
+      <div class="foot-item">Brush <b id="foot-size">1×1</b></div>
+      <div class="foot-item">Tick <b id="foot-tick">0</b></div>
+      <div class="foot-item">Edges <b id="foot-wrap">wrap</b></div>
+    </div>
+  </section>
+
+  <!-- ======================= INSPECTOR ======================= -->
+  <aside class="panel inspector">
+    <div class="panel-head">
+      <h2>Inspector</h2>
+      <span class="badge badge-live">LIVE</span>
+    </div>
+
+    <div id="inspect-brush" class="inspector-section"></div>
+    <div id="inspect-cursor" class="inspector-section"></div>
+
+    <div class="inspector-section">
+      <h3 class="sec-title">What just fired</h3>
+      <div class="activity" id="activity"></div>
+    </div>
+
+    <div class="inspector-section">
+      <h3 class="sec-title">Population history</h3>
+      <canvas id="spark" height="58"></canvas>
+    </div>
+
+    <div class="inspector-section">
+      <h3 class="sec-title">World knobs</h3>
+      <label class="slider-row">
+        <span>Spontaneous mutation</span>
+        <input type="range" id="mut-rate" min="0" max="10" value="0" />
+        <b id="mut-label">off</b>
+      </label>
+      <label class="slider-row">
+        <span>Global decay</span>
+        <input type="range" id="decay-rate" min="0" max="10" value="0" />
+        <b id="decay-label">off</b>
+      </label>
+      <p class="hint">Mutation drops brand new cells in empty space. Decay fades non-structural cells over time.</p>
+    </div>
+
+    <div class="inspector-section">
+      <h3 class="sec-title">Population by family</h3>
+      <div class="family-bars" id="family-bars"></div>
+    </div>
+  </aside>
+</main>
+
+<!-- ======================== CATALOG MODAL ======================== -->
+<div class="modal" id="catalog-modal" hidden>
+  <div class="modal-card">
+    <div class="modal-head">
+      <h2>📖 The 50 cells</h2>
+      <div class="modal-tools">
+        <input type="search" id="catalog-search" placeholder="Filter…" />
+        <button class="btn btn-ghost" id="catalog-close">Close ✕</button>
+      </div>
+    </div>
+    <div class="catalog-grid" id="catalog-body"></div>
+  </div>
+</div>
+
+<script src="js/data.js"></script>
+<script src="js/engine.js"></script>
+<script src="js/render.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
