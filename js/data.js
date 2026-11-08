@@ -75,15 +75,15 @@ const FAMILIES = {
 const CELLS = [
   /* ------------------------------- LIFE ------------------------------ */
   {
-    id: 'life', emoji: '🌱', name: 'Life', family: 'life', chance: 0.35,
-    condition: 'Exactly 3 living neighbours (fewer than 2 and it dies)',
-    effect: 'Crowded: sprouts Life in a free neighbour. Lonely: becomes empty.',
+    id: 'life', emoji: '🌱', name: 'Life', family: 'life', chance: 0.6,
+    condition: '3 living neighbours (dies if it has fewer than 2 or more than 4)',
+    effect: 'Sprouts Life in a free neighbour — or dies of loneliness / crowding',
     cond: (c, w) => {
       const n = livingAround(w, c.x, c.y);
-      return n === 3 || n < 2;
+      return n === 3 || n < 2 || n > 4;
     },
     act: (c, w) => {
-      if (livingAround(w, c.x, c.y) < 2) return w.clear(c);
+      if (livingAround(w, c.x, c.y) !== 3) return w.clear(c);
       w.spawn(freeAround(w, c.x, c.y), 'life');
     },
   },
@@ -374,10 +374,10 @@ const CELLS = [
     },
   },
   {
-    id: 'crystal', emoji: '💎', name: 'Crystal', family: 'chemistry', chance: 0.18,
-    condition: 'Touches a Crystal, has a free neighbour',
-    effect: 'Grows one more facet',
-    cond: (c, w) => countOf(w, c.x, c.y, 'crystal') >= 1 && freeAround(w, c.x, c.y).length > 0,
+    id: 'crystal', emoji: '💎', name: 'Crystal', family: 'chemistry', chance: 0.08,
+    condition: 'Touches exactly 2 Crystals and has a free neighbour',
+    effect: 'Grows one more facet along the edge',
+    cond: (c, w) => countOf(w, c.x, c.y, 'crystal') === 2 && freeAround(w, c.x, c.y).length > 0,
     act: (c, w) => w.spawn(freeAround(w, c.x, c.y), 'crystal'),
   },
 
@@ -474,21 +474,29 @@ const CELLS = [
 
   /* ------------------------------ SOCIETY --------------------------- */
   {
-    id: 'colonist', emoji: '🏠', name: 'Colonist', family: 'society', chance: 0.25,
-    condition: 'Touches a Colonist and has room',
-    effect: 'Founds another Colonist; with 3+ it becomes a Town',
-    cond: (c, w) => countOf(w, c.x, c.y, 'colonist') >= 1 && freeAround(w, c.x, c.y).length > 0,
+    id: 'colonist', emoji: '🏠', name: 'Colonist', family: 'society', chance: 0.14,
+    condition: 'Touches a Colonist and has room — abandoned after 40 ticks',
+    effect: 'Founds another Colonist; with 3 neighbours it becomes a Town',
+    cond: (c, w) =>
+      (countOf(w, c.x, c.y, 'colonist') >= 1 && freeAround(w, c.x, c.y).length > 0) ||
+      w.age(c) > 40,
     act: (c, w) => {
+      if (w.age(c) > 40 && countOf(w, c.x, c.y, 'colonist') < 1) return w.clear(c);
+      if (!freeAround(w, c.x, c.y).length) return;
       w.spawn(freeAround(w, c.x, c.y), 'colonist');
       if (countOf(w, c.x, c.y, 'colonist') >= 3) w.replace(c, 'town');
     },
   },
   {
-    id: 'town', emoji: '🏘️', name: 'Town', family: 'society', chance: 0.3,
-    condition: 'Touches a Colonist and has room',
+    id: 'town', emoji: '🏘️', name: 'Town', family: 'society', chance: 0.12,
+    condition: 'Touches a Colonist and has room — ruins after 80 ticks',
     effect: 'Sends out a new Colonist',
-    cond: (c, w) => touches(w, c.x, c.y, ['colonist']) && freeAround(w, c.x, c.y).length > 0,
-    act: (c, w) => w.spawn(freeAround(w, c.x, c.y), 'colonist'),
+    cond: (c, w) =>
+      (touches(w, c.x, c.y, ['colonist']) && freeAround(w, c.x, c.y).length > 0) || w.age(c) > 80,
+    act: (c, w) => {
+      if (w.age(c) > 80 && !touches(w, c.x, c.y, ['colonist'])) return w.clear(c);
+      w.spawn(freeAround(w, c.x, c.y), 'colonist');
+    },
   },
   {
     id: 'factory', emoji: '🏭', name: 'Factory', family: 'society', chance: 0.4,
@@ -513,11 +521,20 @@ const CELLS = [
 
   /* --------------------------- STRUCTURES --------------------------- */
   {
-    id: 'wall', emoji: '🧱', name: 'Wall', family: 'structures', chance: 0.3,
-    condition: 'Touches a Wall and has a free side',
-    effect: 'Lays another brick next to it',
-    cond: (c, w) => countOf(w, c.x, c.y, 'wall') >= 1 && freeAround(w, c.x, c.y, DIR4).length > 0,
-    act: (c, w) => w.spawn(freeAround(w, c.x, c.y, DIR4), 'wall'),
+    id: 'wall', emoji: '🧱', name: 'Wall', family: 'structures', chance: 0.35,
+    condition: 'Touches a Wall, has a free side, and is within 2 generations',
+    effect: 'Lays another brick next to it (bricks stop after 2 generations)',
+    cond: (c, w) =>
+      (c.label || 0) < 2 &&
+      countOf(w, c.x, c.y, 'wall') >= 1 &&
+      freeAround(w, c.x, c.y, DIR4).length > 0,
+    act: (c, w) => {
+      const spots = freeAround(w, c.x, c.y, DIR4);
+      if (!spots.length) return;
+      const p = pick(spots);
+      const brick = w.place(p.x, p.y, 'wall');
+      if (brick) brick.label = (c.label || 0) + 1;
+    },
   },
   {
     id: 'beacon', emoji: '🔆', name: 'Beacon', family: 'structures', chance: 0.7,
@@ -560,7 +577,7 @@ const VIRUS_IMMUNE = new Set([
    whole grid — exactly the "certain conditions exist" idea. */
 const CROWD = {
   life: 4, moss: 3, algae: 3, spore: 2, seed: 4, tree: 6, flower: 5,
-  vine: 4, bamboo: 4, stem: 4, root: 5, crystal: 4, colonist: 5, town: 6,
+  vine: 4, bamboo: 4, stem: 4, root: 5, crystal: 3, colonist: 4, town: 5,
   bee: 5, butterfly: 6, factory: 5, wall: 8,
 };
 

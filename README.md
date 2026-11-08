@@ -98,7 +98,7 @@ Every row is the complete rule: icon, name, **condition** and **use**.
 
 | # | Cell | Condition — the IF | Use — the THEN | Fires |
 |---|------|-------------------|----------------|-------|
-| 01 | 🌱 **Life** | Exactly 3 living neighbours (fewer than 2 and it dies) | Crowded: sprouts Life in a free neighbour. Lonely: becomes empty. | 35% |
+| 01 | 🌱 **Life** | 3 living neighbours (dies if it has fewer than 2 or more than 4) | Sprouts Life in a free neighbour — or dies of loneliness / crowding | 60% |
 | 02 | 🦠 **Algae** | At least one free neighbour | Creeps into a random free neighbour | 4% |
 | 03 | 🍄 **Spore** | At least one free neighbour | Plants a Spore there, then withers into Moss | 8% |
 | 04 | ☘️ **Moss** | At least one free neighbour | Spreads a thin layer of Moss | 4% |
@@ -166,7 +166,7 @@ Every row is the complete rule: icon, name, **condition** and **use**.
 |---|------|-------------------|----------------|-------|
 | 32 | 🧪 **Acid** | Touches a living cell that is not a Crystal | Dissolves it and takes its form | 50% |
 | 33 | 🧂 **Salt** | Touches Water | Dries the Water into Salt | 50% |
-| 34 | 💎 **Crystal** | Touches a Crystal, has a free neighbour | Grows one more facet | 18% |
+| 34 | 💎 **Crystal** | Touches exactly 2 Crystals and has a free neighbour | Grows one more facet along the edge | 8% |
 
 ### Elements — Fire, water, ice, steam and magma
 
@@ -191,8 +191,8 @@ Every row is the complete rule: icon, name, **condition** and **use**.
 
 | # | Cell | Condition — the IF | Use — the THEN | Fires |
 |---|------|-------------------|----------------|-------|
-| 44 | 🏠 **Colonist** | Touches a Colonist and has room | Founds another Colonist; with 3+ it becomes a Town | 25% |
-| 45 | 🏘️ **Town** | Touches a Colonist and has room | Sends out a new Colonist | 30% |
+| 44 | 🏠 **Colonist** | Touches a Colonist and has room — abandoned after 40 ticks | Founds another Colonist; with 3 neighbours it becomes a Town | 14% |
+| 45 | 🏘️ **Town** | Touches a Colonist and has room — ruins after 80 ticks | Sends out a new Colonist | 12% |
 | 46 | 🏭 **Factory** | Touches a Wire (it is powered) | Assembles a Drone in a free neighbour | 40% |
 | 47 | 🛡️ **Soldier** | Touches a Wolf, Virus or Acid | Destroys the threat and rests for 3 ticks | 90% |
 
@@ -200,7 +200,7 @@ Every row is the complete rule: icon, name, **condition** and **use**.
 
 | # | Cell | Condition — the IF | Use — the THEN | Fires |
 |---|------|-------------------|----------------|-------|
-| 48 | 🧱 **Wall** | Touches a Wall and has a free side | Lays another brick next to it | 30% |
+| 48 | 🧱 **Wall** | Touches a Wall, has a free side, and is within 2 generations | Lays another brick next to it (bricks stop after 2 generations) | 35% |
 | 49 | 🔆 **Beacon** | Has a free neighbour | Sends a Light pulse outward (and attracts Drones) | 70% |
 | 50 | 🚪 **Door** | Touches a Walker or a Runner | Opens: throws the traveller 2 cells forward | 100% |
 

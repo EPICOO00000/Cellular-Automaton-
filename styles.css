@@ -534,3 +534,9 @@ select option { background: var(--panel-solid); }
 .act-quiet { font-size: 11px; color: var(--dim); line-height: 1.5; }
 
 #spark { width: 100%; height: 58px; display: block; }
+
+/* cell fired on the latest tick */
+.cell-entry.just-fired .emoji-chip {
+  box-shadow: 0 0 0 1px rgba(103, 232, 249, 0.9), 0 0 12px rgba(103, 232, 249, 0.45);
+  background: rgba(103, 232, 249, 0.14);
+}
