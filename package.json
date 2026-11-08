@@ -1,0 +1,14 @@
+{
+  "name": "cellarium",
+  "version": "1.0.0",
+  "description": "A 50-cell, condition-driven grid cellular automaton with emoji cells — plain HTML/CSS/JS, zero dependencies.",
+  "main": "serve.js",
+  "scripts": {
+    "start": "node serve.js",
+    "dev": "node serve.js 8080",
+    "test": "node test/smoke.js && node test/dom.js"
+  },
+  "keywords": ["cellular-automaton", "canvas", "simulation", "emoji"],
+  "license": "MIT",
+  "private": true
+}
